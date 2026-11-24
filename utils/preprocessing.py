@@ -4,7 +4,7 @@ Reusable helper functions for the project.
 Anything used in more than one notebook (EDA, preprocessing, classification,
 sentiment analysis) lives here and is imported with:
 
-    from utils.text_utils import <function>
+    from utils.preprocessing import <function>
 
 Each function below is a stub: replace `raise NotImplementedError` with the
 implementation when working on the matching GitHub issue.
