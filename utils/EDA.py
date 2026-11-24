@@ -30,7 +30,6 @@ SecondColor = "#eb6834"
 Year_min = 1000
 
 # Regular expressions
-Bracket = r"\[[^\]]*\]"                # [Verse 1: X], [Chorus], ...
 URL = r"https?://\S+|www\.\S+"
 Section = r"\[\s*(?:verse|chorus|hook|intro|outro|bridge|pre-chorus|refrain|interlude)"
 Performer = r"\[[^\]]*:[^\]]+\]"       # [Verse 2: Lil Wayne]
@@ -52,22 +51,13 @@ def set_plot_style():
     plt.rcParams["axes.spines.right"] = False
 
 
-# Preparing the data
-def clean_for_eda(lyrics):
-    """Light cleaning for the word statistics only (the real preprocessing comes later):
-    removes [...] markers and URLs and puts everything in lowercase."""
-    lyrics = lyrics.fillna("")
-    lyrics = lyrics.str.replace(Bracket, " ", regex=True)
-    lyrics = lyrics.str.replace(URL, " ", regex=True)
-    return lyrics.str.lower()
+# Extra columns used in the EDA
+# (no cleaning here: the EDA looks at the raw data, the cleaning is done in preprocessing)
 
-
-def prepare_eda_df(df):
-    """Returns a copy of df with the extra columns used in the EDA."""
+def add_eda_columns(df):
+    """Returns a copy of df with two descriptive columns: number of words and log of views."""
     eda = df.copy()
-    eda["lyrics_eda"] = clean_for_eda(eda["lyrics"])
     eda["word_count"] = eda["lyrics"].str.split().str.len()
-    eda["year_clean"] = eda["year"].where(eda["year"] >= Year_min)  # fake years -> NaN
     eda["log_views"] = np.log1p(eda["views"])
     return eda
 
@@ -104,8 +94,8 @@ def plot_train_vs_test(train, test):
     axes[0].legend()
 
     # Release year (only 1950-2024 so the plot is readable)
-    train_years = train.loc[train["year_clean"].between(1950, 2024), "year_clean"]
-    test_years = test.loc[test["year_clean"].between(1950, 2024), "year_clean"]
+    train_years = train.loc[train["year"].between(1950, 2024), "year"]
+    test_years = test.loc[test["year"].between(1950, 2024), "year"]
     sns.kdeplot(train_years, ax=axes[1], bw_adjust=0.5, color=MainColor, label="train")
     sns.kdeplot(test_years, ax=axes[1], bw_adjust=0.5, color=SecondColor, ls="--", label="test")
     axes[1].set_xlabel("Release year (1950-2024)")
@@ -123,7 +113,7 @@ def train_test_summary(train, test):
         return {
             "rows": len(df),
             "median words": df["word_count"].median(),
-            "median year": df["year_clean"].median(),
+            "median year (>= {})".format(Year_min): df.loc[df["year"] >= Year_min, "year"].median(),
             "% placeholder year": (df["year"] < Year_min).mean() * 100,
             "median log1p(views)": df["log_views"].median(),
         }
@@ -133,15 +123,15 @@ def train_test_summary(train, test):
 # 5.3 Release year
 
 def plot_release_year(df):
-    fake_year = df["year_clean"].isna()
+    fake_year = df["year"] < Year_min
     print(f"Rows with a placeholder year (< {Year_min}): {fake_year.sum()} "
-          f"({fake_year.mean() * 100:.2f}%) - set to NaN, lyrics kept")
+          f"({fake_year.mean() * 100:.2f}%) - to be handled in preprocessing")
     print(f"Share of songs with year = 2015: {(df['year'] == 2015).mean() * 100:.1f}%")
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 4.5))
 
     # Songs per year, with 2015 in a different colour
-    years = df.loc[df["year_clean"].between(1960, 2024), "year_clean"].astype(int)
+    years = df.loc[df["year"].between(1960, 2024), "year"].astype(int)
     per_year = years.value_counts().sort_index()
     colors = [SecondColor if y == 2015 else MainColor for y in per_year.index]
     axes[0].bar(per_year.index, per_year.values, color=colors)
@@ -150,7 +140,7 @@ def plot_release_year(df):
     axes[0].set_title("Songs per year (1960-2024), 2015 in orange")
 
     # Year by genre
-    sns.boxplot(data=df[df["year_clean"] >= 1950], x="year_clean", y="tag",
+    sns.boxplot(data=df[df["year"] >= 1950], x="year", y="tag",
                 order=Genre_Order, palette=Genre_Palete, fliersize=1, ax=axes[1])
     axes[1].set_xlabel("Release year (>= 1950)")
     axes[1].set_ylabel("")
@@ -187,7 +177,7 @@ def median_by_genre(df, column):
 
 def add_lexical_richness(df):
     """Type-token ratio = unique words / total words (low value = repetitive lyric)."""
-    tokens = df["lyrics_eda"].str.findall(r"[a-z']+")
+    tokens = df["lyrics"].fillna("").str.lower().str.findall(r"[a-z']+")
     df["n_tokens"] = tokens.str.len()
     df["ttr"] = tokens.apply(lambda t: len(set(t)) / len(t) if len(t) > 0 else np.nan)
     return df
@@ -226,7 +216,7 @@ def plot_section_markers(df):
 
 def english_stopword_share(text):
     """Share of the words that are English stopwords (low value = probably not English)."""
-    words = re.findall(r"[a-z']+", text)
+    words = re.findall(r"[a-z']+", text.lower())
     if len(words) == 0:
         return 0
     return np.mean([w in ENGLISH_STOP_WORDS for w in words])
@@ -234,7 +224,7 @@ def english_stopword_share(text):
 
 def data_quality_issues(df, test):
     tags_per_lyric = df.groupby("lyrics")["tag"].transform("nunique")
-    english_share = df["lyrics_eda"].apply(english_stopword_share)
+    english_share = df["lyrics"].fillna("").apply(english_stopword_share)
     translation_accounts = r"^Genius .*(?:Transl|Tradu|Romaniz|Übersetz)"
 
     issues = {
@@ -271,7 +261,7 @@ def song_counts_per_genre(df, min_df=20):
     binary=True so one very long, repetitive text cannot dominate a small genre."""
     vectorizer = CountVectorizer(stop_words=EDA_stopwords, binary=True, min_df=min_df,
                                  token_pattern=Word)
-    X = vectorizer.fit_transform(df["lyrics_eda"])
+    X = vectorizer.fit_transform(df["lyrics"].fillna(""))
     words = vectorizer.get_feature_names_out()
 
     counts = {}
@@ -305,7 +295,7 @@ def plot_distinctive_words(df, top_n=15):
         ax.barh(top_words.index, top_words.values, color=Genre_Colors[genre])
         ax.set_title(genre)
         ax.set_xlabel("log-odds z-score")
-    fig.suptitle("Most distinctive words per genre (stopwords and [section] markers removed)",
+    fig.suptitle("Most distinctive words per genre (raw lyrics, stopwords removed)",
                  fontsize=14, fontweight="bold")
     plt.tight_layout()
     plt.show()
@@ -316,7 +306,7 @@ def plot_distinctive_words(df, top_n=15):
 def plot_genre_similarity(df):
     vectorizer = TfidfVectorizer(stop_words=EDA_stopwords, min_df=20, max_features=50_000,
                                  sublinear_tf=True, token_pattern=Word)
-    X = vectorizer.fit_transform(df["lyrics_eda"])
+    X = vectorizer.fit_transform(df["lyrics"].fillna(""))
 
     # Average TF-IDF vector of each genre, then cosine similarity between them
     mean_vectors = [np.asarray(X[(df["tag"] == g).values].mean(axis=0)).ravel() for g in Genre_Order]
