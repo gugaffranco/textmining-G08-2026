@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer, ENGLISH_STOP_WORDS
 from sklearn.metrics.pairwise import cosine_similarity
+from wordcloud import WordCloud
 
 
 # Settings used in every plot
@@ -25,6 +26,8 @@ Genre_Colors = {
 Genre_Palete = [Genre_Colors[g] for g in Genre_Order]
 MainColor = "#2a78d6"
 SecondColor = "#eb6834"
+
+Seed = 39  # same seed as in the classes, so the word clouds always have the same layout
 
 # Year intervals. All the years are kept as they are, even the very old ones
 # (the test set can also have texts from those times)
@@ -322,9 +325,25 @@ def log_odds_z(counts, genre):
     return (log_odds_genre - log_odds_rest) / np.sqrt(variance)
 
 
-def plot_distinctive_words(df, top_n=15):
-    counts = song_counts_per_genre(df)
+def plot_distinctive_wordclouds(counts, max_words=60):
+    """One word cloud per genre (like in class TM09). The size of each word is its log-odds
+    z-score, so the big words are the most typical of the genre, not just the most frequent."""
+    fig, axes = plt.subplots(2, 3, figsize=(15, 9))
+    for genre, ax in zip(Genre_Order, axes.flat):
+        z = log_odds_z(counts, genre)
+        frequencies = z[z > 0].to_dict()  # only the words that are more common in this genre
+        wc = WordCloud(background_color="white", max_words=max_words, width=500, height=400,
+                       random_state=Seed, color_func=lambda *args, **kwargs: Genre_Colors[genre])
+        ax.imshow(wc.generate_from_frequencies(frequencies), interpolation="bilinear")
+        ax.set_title(genre)
+        ax.axis("off")
+    fig.suptitle("Most distinctive words per genre (word size = log-odds z-score)",
+                 fontsize=14, fontweight="bold")
+    plt.tight_layout()
+    plt.show()
 
+
+def plot_distinctive_words(counts, top_n=15):
     fig, axes = plt.subplots(2, 3, figsize=(15, 9))
     for genre, ax in zip(Genre_Order, axes.flat):
         top_words = log_odds_z(counts, genre).sort_values().tail(top_n)
