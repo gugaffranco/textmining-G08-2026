@@ -33,15 +33,6 @@ Classification and sentiment don't have to wait for preprocessing: start on the 
 5. `main` must always run from start to finish.
 6. Before starting work: `git pull origin main` into your branch.
 
-## Setup
-
-```bash
-conda activate text-mining1
-git lfs pull          # downloads the real train.csv / test.csv
-```
-
-Each notebook downloads the NLTK data it needs in its first cell (both `punkt` and `punkt_tab`, so it runs on any NLTK version).
-
 ## Rules from the brief
 
 - Models: only vanilla scikit-learn, TensorFlow/Keras, PyTorch or Transformers. **No XGBoost, LightGBM, CatBoost or AutoML** (−1 point each time).
